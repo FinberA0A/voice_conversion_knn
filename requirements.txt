@@ -1,0 +1,17 @@
+# PyTorch 不在这里装！RTX 50 系是 Blackwell 架构(sm_120)，必须用 cu128 及以上的
+# 构建，否则运行时报 "no kernel image is available for execution on the device"。
+# 先单独执行：
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+numpy>=1.24,<2.0
+scipy>=1.11
+librosa>=0.10.1
+soundfile>=0.12.1
+pyworld>=0.3.4          # 源-滤波器分解，做显式 F0 控制用
+matplotlib>=3.7
+tqdm>=4.66
+
+# 评估用（可选，做到第 6 步再装）
+# faster-whisper>=1.0      # 转写算 WER，衡量内容有没有丢
+# speechbrain>=1.0         # ECAPA-TDNN 算说话人相似度
+# jiwer>=3.0               # WER 计算

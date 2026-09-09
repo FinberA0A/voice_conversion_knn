@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+outputs/
+data/
+*.wav
+*.pth
+*.pt
+*.onnx
+.speechbrain/
