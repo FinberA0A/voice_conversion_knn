@@ -8,3 +8,4 @@ data/
 *.pt
 *.onnx
 .speechbrain/
+rvc/

@@ -172,39 +172,24 @@ def speaker_similarity(src_path: str, conv_path: str, target_dir: str) -> dict:
     }
 
 
-def extract_f0(path: str, method: str = "harvest") -> tuple[np.ndarray, np.ndarray]:
-    """返回 (f0, 浊音掩码)。两种实现的帧移都对齐到 20ms，可以逐帧互比。
-
-    method 必须和 knnvc/pitch.py 的处理端保持一致，否则你测的是两个工具
-    之间的差异，而不是模型行为。实测混用 harvest 和 pyin 会带来约 0.15 的
-    f0_corr 偏移 —— 大到足以淹没真实效果。
-    """
-    wav, _ = librosa.load(path, sr=SR, mono=True)
-    if method == "harvest":
-        import pyworld as pw
-        x = np.ascontiguousarray(wav, dtype=np.float64)
-        f0, t = pw.harvest(x, SR, f0_floor=65.0, f0_ceil=500.0,
-                           frame_period=HOP / SR * 1000)
-        f0 = pw.stonemask(x, f0, t, SR)
-        return f0, f0 > 0
-    f, flag, _ = librosa.pyin(wav, fmin=65, fmax=400, sr=SR, hop_length=HOP)
-    return np.nan_to_num(f), flag & ~np.isnan(f)
-
-
-def f0_consistency(src_path: str, conv_path: str, plot: str | None = None,
-                   method: str = "harvest") -> dict:
+def f0_consistency(src_path: str, conv_path: str, plot: str | None = None) -> dict:
     """相关系数看语调"形状"，semitone shift 看整体音高被搬动了多少。
 
     两者必须分开看：knn-vc 不显式建模 F0，但特征替换会连带搬走音高，
     于是可能出现"形状跟得很好、整体高了大半个八度"这种情况。
     """
-    f_src, v_src = extract_f0(src_path, method)
-    f_con, v_con = extract_f0(conv_path, method)
+    def f0(path: str):
+        wav, _ = librosa.load(path, sr=SR, mono=True)
+        f, flag, _ = librosa.pyin(wav, fmin=65, fmax=400, sr=SR, hop_length=HOP)
+        return f, flag
+
+    f_src, v_src = f0(src_path)
+    f_con, v_con = f0(conv_path)
 
     # 声码器输出比输入短约 20ms（无 padding 卷积的尾部截断），从头对齐后截断即可
     n = min(len(f_src), len(f_con))
-    both = v_src[:n] & v_con[:n]
-    print(f"\n[F0] 提取方法 {method}，可比对的浊音帧 {int(both.sum())} / {n}")
+    both = v_src[:n] & v_con[:n] & ~np.isnan(f_src[:n]) & ~np.isnan(f_con[:n])
+    print(f"\n[F0] 可比对的浊音帧 {int(both.sum())} / {n}")
     if both.sum() < 20:
         print("     可比帧太少，下面的 F0 数字不可信，换一段更连贯的素材")
         return {}
@@ -218,8 +203,8 @@ def f0_consistency(src_path: str, conv_path: str, plot: str | None = None,
         import matplotlib.pyplot as plt
         t = np.arange(n) * HOP / SR
         fig, ax = plt.subplots(figsize=(12, 4), constrained_layout=True)
-        ax.plot(t, np.where(v_src[:n], f_src[:n], np.nan), label="source", lw=1.5)
-        ax.plot(t, np.where(v_con[:n], f_con[:n], np.nan), label="converted", lw=1.5)
+        ax.plot(t, f_src[:n], label="source", lw=1.5)
+        ax.plot(t, f_con[:n], label="converted", lw=1.5)
         ax.set(xlabel="time (s)", ylabel="Hz",
                title=f"F0 contours (median shift {shift:+.1f} semitones)")
         ax.legend()
@@ -241,14 +226,12 @@ def main() -> None:
     parser.add_argument("--converted", required=True)
     parser.add_argument("--target-dir", required=True)
     parser.add_argument("--plot", default=None, help="F0 对比图输出路径")
-    parser.add_argument("--f0-method", choices=["harvest", "pyin"], default="harvest",
-                        help="必须与 knnvc/pitch.py 的处理端一致，默认 harvest")
     args = parser.parse_args()
 
     plot = args.plot or f"outputs/f0_{Path(args.converted).stem}.png"
 
     results = {}
-    results.update(f0_consistency(args.source, args.converted, plot, args.f0_method))
+    results.update(f0_consistency(args.source, args.converted, plot))
     results.update(speaker_similarity(args.source, args.converted, args.target_dir))
     results.update(content_preservation(args.source, args.converted))
 
